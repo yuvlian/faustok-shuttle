@@ -2,8 +2,6 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 
-static REQWEST: LazyLock<Client> = LazyLock::new(Client::new);
-
 static API_BASE_URL: LazyLock<String> =
     LazyLock::new(|| String::from("https://api.tiklydown.eu.org/api/download?url="));
 
@@ -15,9 +13,9 @@ pub struct TiklydownRsp {
 }
 
 impl TiklydownRsp {
-    pub async fn fetch_url(url: &str) -> Result<Self, crate::Error> {
+    pub async fn fetch_url(url: &str, client: &Client) -> Result<Self, crate::Error> {
         let x = format!("{}{}", *API_BASE_URL, url);
-        let y = REQWEST.get(&x).send().await?;
+        let y = client.get(&x).send().await?;
         let z: Self = y.json().await?;
         Ok(z)
     }

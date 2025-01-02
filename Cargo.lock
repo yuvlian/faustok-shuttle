@@ -529,6 +529,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "poise",
+ "regex",
  "reqwest 0.12.11",
  "serde",
  "shuttle-runtime",

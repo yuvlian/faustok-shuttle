@@ -2,13 +2,37 @@ use anyhow::Context as _;
 use poise::serenity_prelude::{ClientBuilder, GatewayIntents};
 use shuttle_runtime::SecretStore;
 use shuttle_serenity::ShuttleSerenity;
+use std::sync::LazyLock;
+use std::time::Instant;
+
+static LAST_DEPLOYMENT: LazyLock<Instant> = LazyLock::new(Instant::now);
+
+static REQWEST_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+    reqwest::Client::builder()
+        .user_agent("TelegramBot")
+        .build()
+        .unwrap()
+});
 
 struct Data {} // User data, which is stored and accessible in all command invocations
 type Error = Box<dyn std::error::Error + Send + Sync>;
 type Context<'a> = poise::Context<'a, Data, Error>;
 
+mod instadown;
 mod tiklydown;
+
+use instadown::instadown;
 use tiklydown::TiklydownRsp;
+
+// Check last deployment
+#[poise::command(slash_command, prefix_command)]
+async fn last_deploy(ctx: Context<'_>) -> Result<(), Error> {
+    let elapsed = LAST_DEPLOYMENT.elapsed();
+    let days = elapsed.as_secs() / 86400;
+    let message = format!("Last deployment was {} days ago", days);
+    ctx.say(message).await?;
+    Ok(())
+}
 
 /// Help command, duh
 #[poise::command(slash_command, prefix_command)]
@@ -19,7 +43,8 @@ async fn help(ctx: Context<'_>) -> Result<(), Error> {
         r#"[commands]
 \# supports prefix & slash
 help = shows this message
-faustok = gets cdn url from tiktok url. set true will make it send music url too."#,
+tt = gets cdn url from tiktok url. set true will make it send music url too."
+ig = shitty cdn url grabber for ig reels # this shit barely works"#,
     )
     .await?;
 
@@ -45,16 +70,28 @@ hosting = <https://shuttle.rs/>"#,
     Ok(())
 }
 
+/// Get IG Reels CDN Url
+#[poise::command(slash_command, prefix_command)]
+async fn ig(ctx: Context<'_>, #[description = "IG Reel URL"] url: String) -> Result<(), Error> {
+    ctx.defer().await?;
+
+    let cdn_url = instadown(&url, &REQWEST_CLIENT).await?;
+    ctx.say(format!("[this shit barely works sorry]({})", cdn_url))
+        .await?;
+
+    Ok(())
+}
+
 /// Get TikTok CDN Url
 #[poise::command(slash_command, prefix_command)]
-async fn faustok(
+async fn tt(
     ctx: Context<'_>,
     #[description = "TikTok URL"] url: String,
     #[description = "Get Music"] set: Option<bool>,
 ) -> Result<(), Error> {
     ctx.defer().await?;
 
-    let t_rsp = TiklydownRsp::fetch_url(&url).await?;
+    let t_rsp = TiklydownRsp::fetch_url(&url, &REQWEST_CLIENT).await?;
     let default_set = set.unwrap_or(false);
     let media = t_rsp.get_media_urls(default_set);
 
@@ -82,6 +119,8 @@ async fn faustok(
 
 #[shuttle_runtime::main]
 async fn main(#[shuttle_runtime::Secrets] secret_store: SecretStore) -> ShuttleSerenity {
+    println!("{:?}", *LAST_DEPLOYMENT);
+
     // Get the discord token set in `Secrets.toml`
     let discord_token = secret_store
         .get("DISCORD_TOKEN")
@@ -89,7 +128,7 @@ async fn main(#[shuttle_runtime::Secrets] secret_store: SecretStore) -> ShuttleS
 
     let framework = poise::Framework::builder()
         .options(poise::FrameworkOptions {
-            commands: vec![faustok(), help(), info()],
+            commands: vec![last_deploy(), ig(), tt(), help(), info()],
             prefix_options: poise::PrefixFrameworkOptions {
                 prefix: Some(".".into()),
                 ..Default::default()
